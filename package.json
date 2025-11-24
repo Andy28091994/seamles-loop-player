@@ -1,0 +1,45 @@
+{
+  "name": "seamless-loop-player-desktop",
+  "version": "1.0.0",
+  "description": "Seamless Loop Player - Electron",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --publish never"
+  },
+  "build": {
+    "productName": "Seamless Loop Player",
+    "appId": "com.yourcompany.seamlessloop.desktop",
+    "files": [
+      "www/**/*",
+      "main.js",
+      "preload.js",
+      "package.json"
+    ],
+    "directories": {
+      "buildResources": "build"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    }
+  },
+  "devDependencies": {
+    "electron": "^26.2.0",
+    "electron-builder": "^24.6.0"
+  }
+}

@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Seamless Loop Player — Desktop</title>
+  <style>
+    :root{--w:800px;--h:450px}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;display:flex;flex-direction:column;align-items:center;padding:18px;gap:12px}
+    .app{width:100%;max-width:840px}
+    .player{position:relative;width:100%;padding-top:calc(var(--h)/var(--w)*100%);background:#111;border-radius:10px;overflow:hidden}
+    video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transition:opacity 400ms linear}
+    .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    input[type=range]{width:180px}
+    label{font-size:13px;color:#222}
+    .panel{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .notice{font-size:13px;color:#555}
+    button{background:#0b74ff;color:#fff;border:0;padding:8px 12px;border-radius:8px}
+    .muted{opacity:0.6}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <h2>Seamless Loop Player</h2>
+    <div class="notice">Upload a video file or paste a direct video URL. The player crossfades two video elements to create a smooth loop without re-encoding.</div>
+
+    <div style="margin:10px 0;display:flex;gap:8px;flex-wrap:wrap">
+      <input id="file" type="file" accept="video/*">
+      <input id="url" placeholder="Or paste video URL here" style="min-width:220px;padding:8px">
+      <button id="load">Load</button>
+      <button id="play" disabled>Play</button>
+      <button id="pause" disabled>Pause</button>
+    </div>
+
+    <div class="player" id="playerWrap">
+      <video id="v1" playsinline muted></video>
+      <video id="v2" playsinline muted style="opacity:0"></video>
+    </div>
+
+    <div class="controls">
+      <div class="panel">
+        <label>Crossfade (sec)</label>
+        <input id="xfade" type="range" min="0" max="3" step="0.1" value="0.8">
+        <span id="xfadeVal">0.8</span>
+      </div>
+      <div class="panel">
+        <label>Preload before end (sec)</label>
+        <input id="preload" type="range" min="0.1" max="2.5" step="0.1" value="0.9">
+        <span id="preloadVal">0.9</span>
+      </div>
+      <div class="panel">
+        <label class="muted">Audio</label>
+        <input type="checkbox" id="audioOn" checked>
+      </div>
+    </div>
+
+    <p class="notice">Tips: shorter crossfade = less noticeable motion blur; longer crossfade hides abrupt changes.</p>
+  </div>
+
+<script>
+const fileInput = document.getElementById('file');
+const urlInput = document.getElementById('url');
+const loadBtn = document.getElementById('load');
+const playBtn = document.getElementById('play');
+const pauseBtn = document.getElementById('pause');
+const v1 = document.getElementById('v1');
+const v2 = document.getElementById('v2');
+const xfade = document.getElementById('xfade');
+const xfadeVal = document.getElementById('xfadeVal');
+const preload = document.getElementById('preload');
+const preloadVal = document.getElementById('preloadVal');
+const audioOn = document.getElementById('audioOn');
+
+let active = v1, passive = v2;
+let isLoaded = false;
+let isPlaying = false;
+let crossfade = parseFloat(xfade.value);
+let preloadBeforeEnd = parseFloat(preload.value);
+
+xfade.addEventListener('input', ()=>{crossfade = parseFloat(xfade.value); xfadeVal.textContent = crossfade});
+preload.addEventListener('input', ()=>{preloadBeforeEnd = parseFloat(preload.value); preloadVal.textContent = preloadBeforeEnd});
+
+loadBtn.addEventListener('click', ()=>{
+  if (fileInput.files.length){
+    const f = fileInput.files[0];
+    const url = URL.createObjectURL(f);
+    prepareSource(url);
+  } else if (urlInput.value.trim()){
+    prepareSource(urlInput.value.trim());
+  } else {
+    alert('Pilih file video atau masukkan URL');
+  }
+});
+
+function prepareSource(src){
+  resetPlayers();
+  isLoaded = false;
+  active.src = src; passive.src = src;
+  active.muted = !audioOn.checked;
+  passive.muted = !audioOn.checked;
+
+  Promise.all([
+    new Promise(res=> active.onloadedmetadata = ()=>res()),
+    new Promise(res=> passive.onloadedmetadata = ()=>res())
+  ]).then(()=>{
+    isLoaded = true;
+    playBtn.disabled = false; pauseBtn.disabled = false;
+    active.currentTime = 0; passive.currentTime = 0;
+    active.style.opacity = 1; passive.style.opacity = 0;
+    active.volume = audioOn.checked ? 1 : 0; passive.volume = 0;
+    attachTimeupdate(active);
+    attachTimeupdate(passive);
+    alert('Loaded. Set crossfade & press Play.');
+  }).catch(e=>{console.error(e); alert('Failed to load metadata.')});
+}
+
+function resetPlayers(){
+  try{ [v1,v2].forEach(v=>{v.pause(); v.removeAttribute('src'); v.load();}); }catch(e){}
+  active = v1; passive = v2;
+}
+
+function attachTimeupdate(video){
+  video.addEventListener('timeupdate', onTimeupdate);
+}
+
+function onTimeupdate(e){
+  const video = e.target;
+  if (!isPlaying || !isLoaded) return;
+  const dur = video.duration;
+  if (!isFinite(dur) || dur <= 0) return;
+  const remaining = dur - video.currentTime;
+  if (video === active && remaining <= preloadBeforeEnd && !passive.dataset.pending){
+    startCrossfade();
+  }
+}
+
+function startCrossfade(){
+  passive.dataset.pending = '1';
+  passive.currentTime = 0;
+  passive.muted = !audioOn.checked;
+  active.muted = !audioOn.checked;
+  passive.volume = 0;
+  passive.style.opacity = 0;
+  const steps = Math.max(10, Math.round(crossfade*30));
+  const interval = (crossfade/steps)*1000;
+  passive.play().catch(err=>{console.warn('play fail',err)});
+
+  let i=0;
+  const fadeTimer = setInterval(()=>{
+    i++;
+    const t = i/steps;
+    passive.style.opacity = t;
+    passive.volume = audioOn.checked ? t : 0;
+    active.style.opacity = 1 - t;
+    active.volume = audioOn.checked ? 1 - t : 0;
+    if (i>=steps){
+      clearInterval(fadeTimer);
+      active.pause();
+      active.style.opacity = 0;
+      active.volume = 0;
+      active.dataset.pending = '';
+      passive.dataset.pending = '';
+      const old = active; active = passive; passive = old;
+    }
+  }, interval);
+}
+
+playBtn.addEventListener('click', async ()=>{
+  if (!isLoaded){ alert('Load a video first'); return; }
+  try{ await active.play(); isPlaying = true;}catch(e){console.warn(e)}
+});
+
+pauseBtn.addEventListener('click', ()=>{ isPlaying = false; active.pause(); passive.pause(); });
+
+audioOn.addEventListener('change', ()=>{
+  const m = !audioOn.checked;
+  v1.muted = m; v2.muted = m;
+  if (m){ v1.volume = 0; v2.volume = 0; }
+});
+
+window.addEventListener('keydown', (e)=>{ if (e.code === 'Space'){ e.preventDefault(); if (isPlaying) pauseBtn.click(); else playBtn.click(); } });
+
+</script>
+</body>
+</html>
